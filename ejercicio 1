@@ -1,0 +1,440 @@
+
+#include <SFML/Graphics.hpp>
+#include <iostream>
+#include <string>
+#include <algorithm>
+#include <cmath>
+#include <optional>
+
+using namespace std;
+
+// arbol
+
+struct Nodo
+{
+    int valor;
+    Nodo* izq;
+    Nodo* der;
+
+    float x, y;
+
+    Nodo(int v)
+    {
+        valor = v;
+        izq = nullptr;
+        der = nullptr;
+        x = y = 0;
+    }
+};
+
+
+
+class CArbol
+{
+private:
+    Nodo* raiz;
+    int nelem;
+    int profundidad;
+
+    sf::Font fuente;
+    bool fuenteLista;
+
+    const float separacionX = 75.f;
+    const float separacionY = 110.f;
+    const float margenX = 90.f;
+    const float margenY = 100.f;
+    const float radio = 24.f;
+
+public:
+
+    CArbol()
+    {
+        raiz = nullptr;
+        nelem = 0;
+        profundidad = 0;
+        fuenteLista = false;
+
+        const char* rutas[] = {
+            "arial.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/consola.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        };
+
+        for (const char* ruta : rutas)
+        {
+            if (fuente.openFromFile(ruta))
+            {
+                fuenteLista = true;
+                break;
+            }
+        }
+
+        if (!fuenteLista)
+            cout << "No se encontro una fuente.\n";
+    }
+
+    ~CArbol()
+    {
+        destruir(raiz);
+    }
+
+    // Evitar copias que compartan los mismos punteros
+    CArbol(const CArbol&) = delete;
+    CArbol& operator=(const CArbol&) = delete;
+
+    // emp. el arbol
+
+    Nodo* construir(const int* A, int inicio, int fin,
+        int nivel)
+    {
+        
+        if (inicio == fin)
+        {
+            Nodo* nuevo = new Nodo(A[inicio]);
+
+            nuevo->x = margenX + inicio * separacionX;
+            nuevo->y = margenY + profundidad * separacionY;
+
+            return nuevo;
+        }
+
+        int medio = (inicio + fin) / 2;
+
+        
+        Nodo* izquierdo = construir(
+            A, inicio, medio, nivel + 1
+        );
+
+        
+        Nodo* derecho = construir(
+            A, medio + 1, fin, nivel + 1
+        );
+
+        
+        Nodo* padre = new Nodo(
+            izquierdo->valor + derecho->valor
+        );
+
+        padre->izq = izquierdo;
+        padre->der = derecho;
+
+        
+        padre->x = (izquierdo->x + derecho->x) / 2.f;
+
+        padre->y = margenY + nivel * separacionY;
+
+        return padre;
+    }
+
+    void ArmarSuma(const int* inicio, const int* fin)
+    {
+        if (inicio == nullptr || fin == nullptr)
+        {
+            cout << "arreglo invalido.\n";
+            return;
+        }
+
+        int n = static_cast<int>(fin - inicio);
+
+        if (n <= 0 || (n & (n - 1)) != 0)
+        {
+            cout << "el tamaño debe ser potencia de 2.\n";
+            return;
+        }
+
+        destruir(raiz);
+        raiz = nullptr;
+
+        nelem = n;
+        profundidad = 0;
+
+        for (int k = n; k > 1; k /= 2)
+            profundidad++;
+
+        raiz = construir(inicio, 0, n - 1, 0);
+    }
+
+    
+
+    void destruir(Nodo* p)
+    {
+        if (p == nullptr)
+            return;
+
+        destruir(p->izq);
+        destruir(p->der);
+
+        delete p;
+    }
+
+    // dimensiones
+
+    float ancho() const
+    {
+        if (raiz == nullptr)
+            return 1400.f;
+
+        return max(
+            1400.f,
+            2 * margenX + (nelem - 1) * separacionX
+        );
+    }
+
+    float alto() const
+    {
+        if (raiz == nullptr)
+            return 800.f;
+
+        return max(
+            800.f,
+            2 * margenY + profundidad * separacionY
+        );
+    }
+
+    // dibujamos rec.
+
+    void dibujarLineas(sf::RenderWindow& window, Nodo* p)
+    {
+        if (p == nullptr)
+            return;
+
+        Nodo* hijos[2] = { p->izq, p->der };
+
+        for (int i = 0; i < 2; i++)
+        {
+            Nodo* hijo = hijos[i];
+
+            if (hijo == nullptr)
+                continue;
+
+            float dx = hijo->x - p->x;
+            float dy = hijo->y - p->y;
+
+            float distancia = sqrt(dx * dx + dy * dy);
+
+            if (distancia == 0.f)
+                continue;
+
+            float ux = dx / distancia;
+            float uy = dy / distancia;
+
+            
+            sf::Vector2f puntoInicio(
+                p->x + ux * radio,
+                p->y + uy * radio
+            );
+
+            
+            sf::Vector2f puntoFin(
+                hijo->x - ux * radio,
+                hijo->y - uy * radio
+            );
+
+            sf::Color colorLinea(148, 163, 184);
+
+            
+            sf::Vertex verticeInicio;
+            verticeInicio.position = puntoInicio;
+            verticeInicio.color = colorLinea;
+
+            sf::Vertex verticeFin;
+            verticeFin.position = puntoFin;
+            verticeFin.color = colorLinea;
+
+            sf::VertexArray linea(sf::PrimitiveType::Lines);
+
+            linea.append(verticeInicio);
+            linea.append(verticeFin);
+
+            window.draw(linea);
+
+            
+            dibujarLineas(window, hijo);
+        }
+    }
+
+    // dib. los nodos
+
+    void dibujarNodos(sf::RenderWindow& window,
+        Nodo* p, int nivel)
+    {
+        if (p == nullptr)
+            return;
+
+        sf::CircleShape circulo(radio);
+
+        circulo.setOrigin({ radio, radio });
+        circulo.setPosition({ p->x, p->y });
+
+        
+        if (p->izq == nullptr && p->der == nullptr)
+        {
+            circulo.setFillColor(
+                sf::Color(22, 163, 74)
+            );
+        }
+        
+        else if (p == raiz)
+        {
+            circulo.setFillColor(
+                sf::Color(234, 88, 12)
+            );
+        }
+        
+        else
+        {
+            circulo.setFillColor(
+                sf::Color(37, 99, 235)
+            );
+        }
+
+        circulo.setOutlineThickness(2.f);
+
+        circulo.setOutlineColor(
+            sf::Color(226, 232, 240)
+        );
+
+        window.draw(circulo);
+
+        
+        if (fuenteLista)
+        {
+            sf::Text texto(
+                fuente,
+                to_string(p->valor),
+                17
+            );
+
+            texto.setFillColor(sf::Color::White);
+            texto.setStyle(sf::Text::Bold);
+
+            
+            while (
+                texto.getLocalBounds().size.x >
+                radio * 1.65f
+                &&
+                texto.getCharacterSize() > 9
+                )
+            {
+                texto.setCharacterSize(
+                    texto.getCharacterSize() - 1
+                );
+            }
+
+            sf::FloatRect bounds =
+                texto.getLocalBounds();
+
+            texto.setOrigin({
+                bounds.position.x + bounds.size.x / 2.f,
+                bounds.position.y + bounds.size.y / 2.f
+                });
+
+            texto.setPosition({ p->x, p->y });
+
+            window.draw(texto);
+        }
+
+        // recorremos a los hijos
+        dibujarNodos(window, p->izq, nivel + 1);
+        dibujarNodos(window, p->der, nivel + 1);
+    }
+
+    // dib. arbol completo
+
+    void draw(sf::RenderWindow& window)
+    {
+        if (raiz == nullptr)
+            return;
+
+        
+        dibujarLineas(window, raiz);
+
+        
+        dibujarNodos(window, raiz, 0);
+    }
+};
+
+
+
+int main()
+{
+    int A[] = { 1, 3, 8, 4, 5, 7, 15, 21 };
+
+    int N = sizeof(A) / sizeof(A[0]);
+
+    CArbol Arbol;
+
+    Arbol.ArmarSuma(A, A + N);
+
+    
+    sf::RenderWindow window(
+        sf::VideoMode({ 1400, 800 }),
+        "Arbol binario de sumas - SFML 3"
+    );
+
+    window.setFramerateLimit(60);
+
+    
+
+    float anchoArbol = Arbol.ancho();
+    float altoArbol = Arbol.alto();
+
+    float proporcion = 1400.f / 800.f;
+
+    float anchoVista = max(
+        anchoArbol,
+        altoArbol * proporcion
+    );
+
+    float altoVista = anchoVista / proporcion;
+
+    sf::View vista(
+        sf::FloatRect(
+            { 0.f, 0.f },
+            { anchoVista, altoVista }
+        )
+    );
+
+    vista.setCenter({
+        anchoArbol / 2.f,
+        altoArbol / 2.f
+        });
+
+    
+
+    while (window.isOpen())
+    {
+        while (const std::optional event = window.pollEvent())
+        {
+            if (event->is<sf::Event::Closed>())
+            {
+                window.close();
+            }
+
+            
+            if (const auto* rueda =
+                event->getIf<sf::Event::MouseWheelScrolled>())
+            {
+                if (rueda->delta > 0)
+                {
+                    vista.zoom(0.85f);
+                }
+                else if (rueda->delta < 0)
+                {
+                    vista.zoom(1.15f);
+                }
+            }
+        }
+
+        window.setView(vista);
+
+        window.clear(sf::Color(15, 23, 42));
+
+        Arbol.draw(window);
+
+        window.display();
+    }
+
+    return 0;
+}
