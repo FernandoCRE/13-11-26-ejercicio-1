@@ -1,0 +1,586 @@
+
+#include <SFML/Graphics.hpp>
+#include <iostream>
+#include <algorithm>
+#include <cmath>
+#include <optional>
+#include <string>
+
+using namespace std;
+
+// nodo
+struct Node
+{
+    int value;
+    int altura;
+
+    Node* nodes[2];
+    Node* padre;
+
+    float x, y;
+
+    Node(int v)
+    {
+        value = v;
+        altura = 1;
+
+        nodes[0] = nodes[1] = nullptr;
+        padre = nullptr;
+
+        x = y = 0;
+    }
+};
+
+// avl
+
+class CBinTree
+{
+private:
+    Node* root;
+    Node* seleccionado;
+
+    int nelem;
+
+    sf::Font fuente;
+    bool fuenteLista;
+
+    const float radio = 24.f;
+    const float espacioX = 85.f;
+    const float espacioY = 110.f;
+
+    // altura y balanceo
+
+    int altura(Node* p)
+    {
+        return p ? p->altura : 0;
+    }
+
+    int balance(Node* p)
+    {
+        if (!p)
+            return 0;
+
+        return altura(p->nodes[0])
+            - altura(p->nodes[1]);
+    }
+
+    void actualizar(Node* p)
+    {
+        if (!p)
+            return;
+
+        p->altura = 1 + max(
+            altura(p->nodes[0]),
+            altura(p->nodes[1])
+        );
+    }
+
+    //rotacion a la derecha
+
+    Node* rotarDerecha(Node* p)
+    {
+        Node* q = p->nodes[0];
+        Node* t = q->nodes[1];
+
+        q->nodes[1] = p;
+        p->nodes[0] = t;
+
+        q->padre = p->padre;
+        p->padre = q;
+
+        if (t)
+            t->padre = p;
+
+        actualizar(p);
+        actualizar(q);
+
+        return q;
+    }
+
+    // rotacion a la izquierda
+
+    Node* rotarIzquierda(Node* p)
+    {
+        Node* q = p->nodes[1];
+        Node* t = q->nodes[0];
+
+        q->nodes[0] = p;
+        p->nodes[1] = t;
+
+        q->padre = p->padre;
+        p->padre = q;
+
+        if (t)
+            t->padre = p;
+
+        actualizar(p);
+        actualizar(q);
+
+        return q;
+    }
+
+    // metemos el avl
+
+    Node* RecInsert(Node* p, int x, Node* padre)
+    {
+        if (!p)
+        {
+            Node* nuevo = new Node(x);
+            nuevo->padre = padre;
+            nelem++;
+            return nuevo;
+        }
+
+        if (x < p->value)
+        {
+            p->nodes[0] =
+                RecInsert(p->nodes[0], x, p);
+        }
+        else if (x > p->value)
+        {
+            p->nodes[1] =
+                RecInsert(p->nodes[1], x, p);
+        }
+        else
+        {
+            return p;
+        }
+
+        actualizar(p);
+
+        int bf = balance(p);
+
+        // Caso LL
+        if (bf > 1 && x < p->nodes[0]->value)
+            return rotarDerecha(p);
+
+        // Caso RR
+        if (bf < -1 && x > p->nodes[1]->value)
+            return rotarIzquierda(p);
+
+        // Caso LR
+        if (bf > 1 && x > p->nodes[0]->value)
+        {
+            p->nodes[0] =
+                rotarIzquierda(p->nodes[0]);
+
+            return rotarDerecha(p);
+        }
+
+        // Caso RL
+        if (bf < -1 && x < p->nodes[1]->value)
+        {
+            p->nodes[1] =
+                rotarDerecha(p->nodes[1]);
+
+            return rotarIzquierda(p);
+        }
+
+        return p;
+    }
+
+    // buscamos el nodo
+
+    Node* RecFind(Node* p, int x)
+    {
+        if (!p)
+            return nullptr;
+
+        if (p->value == x)
+            return p;
+
+        if (x < p->value)
+            return RecFind(p->nodes[0], x);
+
+        return RecFind(p->nodes[1], x);
+    }
+
+    // buscamos el nivel del nodo
+
+    int buscarNivel(Node* p, Node* objetivo, int nivel)
+    {
+        if (!p)
+            return -1;
+
+        if (p == objetivo)
+            return nivel;
+
+        int izq = buscarNivel(
+            p->nodes[0], objetivo, nivel + 1
+        );
+
+        if (izq != -1)
+            return izq;
+
+        return buscarNivel(
+            p->nodes[1], objetivo, nivel + 1
+        );
+    }
+
+    // si es primo
+
+    bool esPrimo(Node* p)
+    {
+        if (!seleccionado || !p)
+            return false;
+
+        if (p == seleccionado)
+            return false;
+
+        // Los hermanos no son primos
+        if (p->padre == seleccionado->padre)
+            return false;
+
+        int nivel1 = buscarNivel(root, seleccionado, 0);
+        int nivel2 = buscarNivel(root, p, 0);
+
+        return nivel1 == nivel2;
+    }
+
+    // posicionamos los nodos
+
+    void posicionar(Node* p, int nivel, int& indice)
+    {
+        if (!p)
+            return;
+
+        posicionar(p->nodes[0], nivel + 1, indice);
+
+        p->x = 100.f + indice * espacioX;
+        p->y = 110.f + nivel * espacioY;
+
+        indice++;
+
+        posicionar(p->nodes[1], nivel + 1, indice);
+    }
+
+    //mouse 
+
+    Node* buscarClick(Node* p, float x, float y)
+    {
+        if (!p)
+            return nullptr;
+
+        float dx = p->x - x;
+        float dy = p->y - y;
+
+        if (dx * dx + dy * dy <= radio * radio)
+            return p;
+
+        Node* izq = buscarClick(p->nodes[0], x, y);
+
+        if (izq)
+            return izq;
+
+        return buscarClick(p->nodes[1], x, y);
+    }
+
+    
+
+    void dibujarRamas(sf::RenderWindow& ventana, Node* p)
+    {
+        if (!p)
+            return;
+
+        for (int i = 0; i < 2; i++)
+        {
+            Node* hijo = p->nodes[i];
+
+            if (!hijo)
+                continue;
+
+            sf::Vertex linea[2];
+
+            linea[0].position = { p->x, p->y };
+            linea[0].color = sf::Color(150, 160, 180);
+
+            linea[1].position = { hijo->x, hijo->y };
+            linea[1].color = sf::Color(150, 160, 180);
+
+            ventana.draw(
+                linea, 2, sf::PrimitiveType::Lines
+            );
+
+            dibujarRamas(ventana, hijo);
+        }
+    }
+
+    
+
+    void dibujarNodos(sf::RenderWindow& ventana, Node* p)
+    {
+        if (!p)
+            return;
+
+        sf::CircleShape circulo(radio);
+
+        circulo.setOrigin({ radio, radio });
+        circulo.setPosition({ p->x, p->y });
+
+        
+        if (p == seleccionado)
+        {
+            circulo.setFillColor(
+                sf::Color(234, 179, 8)
+            );
+        }
+        
+        else if (esPrimo(p))
+        {
+            circulo.setFillColor(
+                sf::Color(22, 163, 74)
+            );
+        }
+        
+        else
+        {
+            circulo.setFillColor(
+                sf::Color(37, 99, 235)
+            );
+        }
+
+        circulo.setOutlineThickness(2.f);
+        circulo.setOutlineColor(sf::Color::White);
+
+        ventana.draw(circulo);
+
+        if (fuenteLista)
+        {
+            sf::Text texto(
+                fuente,
+                to_string(p->value),
+                17
+            );
+
+            texto.setFillColor(sf::Color::White);
+
+            sf::FloatRect b = texto.getLocalBounds();
+
+            texto.setOrigin({
+                b.position.x + b.size.x / 2.f,
+                b.position.y + b.size.y / 2.f
+                });
+
+            texto.setPosition({ p->x, p->y });
+
+            ventana.draw(texto);
+
+            
+            sf::Text bf(
+                fuente,
+                "bf=" + to_string(balance(p)),
+                13
+            );
+
+            bf.setFillColor(sf::Color(200, 210, 225));
+
+            sf::FloatRect bb = bf.getLocalBounds();
+
+            bf.setOrigin({
+                bb.position.x + bb.size.x / 2.f,
+                0.f
+                });
+
+            bf.setPosition({ p->x, p->y + 31.f });
+
+            ventana.draw(bf);
+        }
+
+        dibujarNodos(ventana, p->nodes[0]);
+        dibujarNodos(ventana, p->nodes[1]);
+    }
+
+    
+
+    void destruir(Node* p)
+    {
+        if (!p)
+            return;
+
+        destruir(p->nodes[0]);
+        destruir(p->nodes[1]);
+
+        delete p;
+    }
+
+public:
+
+    CBinTree()
+    {
+        root = nullptr;
+        seleccionado = nullptr;
+        nelem = 0;
+        fuenteLista = false;
+
+        if (fuente.openFromFile(
+            "C:/Windows/Fonts/arial.ttf"))
+        {
+            fuenteLista = true;
+        }
+        else if (fuente.openFromFile("arial.ttf"))
+        {
+            fuenteLista = true;
+        }
+        else if (fuente.openFromFile(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+        {
+            fuenteLista = true;
+        }
+    }
+
+    ~CBinTree()
+    {
+        destruir(root);
+    }
+
+    CBinTree(const CBinTree&) = delete;
+    CBinTree& operator=(const CBinTree&) = delete;
+
+    
+
+    void insert(int x)
+    {
+        root = RecInsert(root, x, nullptr);
+
+        if (root)
+            root->padre = nullptr;
+
+        int indice = 0;
+        posicionar(root, 0, indice);
+    }
+
+    
+
+    void ArmarAVL(const int* A, int N)
+    {
+        if (!A || N <= 0)
+            return;
+
+        destruir(root);
+
+        root = nullptr;
+        seleccionado = nullptr;
+        nelem = 0;
+
+        for (int i = 0; i < N; i++)
+            insert(A[i]);
+    }
+
+    
+
+    void seleccionar(int x)
+    {
+        seleccionado = RecFind(root, x);
+
+        if (seleccionado)
+            cout << "Seleccionado: " << x << '\n';
+        else
+            cout << "No existe el numero " << x << '\n';
+    }
+
+    
+
+    void Draw()
+    {
+        if (!root)
+            return;
+
+        sf::RenderWindow ventana(
+            sf::VideoMode({ 1400, 800 }),
+            "Arbol AVL - Primos"
+        );
+
+        ventana.setFramerateLimit(60);
+
+        float ancho = max(
+            1400.f,
+            200.f + nelem * espacioX
+        );
+
+        float alto = max(
+            800.f,
+            220.f + altura(root) * espacioY
+        );
+
+        sf::View vista(
+            sf::FloatRect(
+                { 0.f, 0.f },
+                { ancho, alto }
+            )
+        );
+
+        cout << "\nCONTROLES:\n";
+        cout << "Click: seleccionar nodo\n";
+        cout << "Rueda: zoom\n\n";
+
+        while (ventana.isOpen())
+        {
+            while (const optional<sf::Event> evento =
+                ventana.pollEvent())
+            {
+                if (evento->is<sf::Event::Closed>())
+                    ventana.close();
+
+                
+                if (const auto* mouse =
+                    evento->getIf<sf::Event::MouseButtonPressed>())
+                {
+                    if (mouse->button == sf::Mouse::Button::Left)
+                    {
+                        sf::Vector2f pos =
+                            ventana.mapPixelToCoords(
+                                mouse->position,
+                                vista
+                            );
+
+                        Node* p = buscarClick(
+                            root, pos.x, pos.y
+                        );
+
+                        if (p)
+                            seleccionar(p->value);
+                    }
+                }
+
+                
+                if (const auto* rueda =
+                    evento->getIf<sf::Event::MouseWheelScrolled>())
+                {
+                    if (rueda->delta > 0)
+                        vista.zoom(0.85f);
+                    else
+                        vista.zoom(1.15f);
+                }
+            }
+
+            ventana.clear(sf::Color(15, 23, 42));
+            ventana.setView(vista);
+
+            dibujarRamas(ventana, root);
+            dibujarNodos(ventana, root);
+
+            ventana.display();
+        }
+    }
+};
+
+
+
+int main()
+{
+    int A[] = {
+        50, 30, 20, 10, 25,
+        40, 35, 44,
+        70, 60, 65, 80, 90
+    };
+
+    int N = sizeof(A) / sizeof(A[0]);
+
+    CBinTree Arbol;
+
+    Arbol.ArmarAVL(A, N);
+
+    Arbol.Draw();
+
+    return 0;
+}
