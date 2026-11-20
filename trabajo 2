@@ -1,0 +1,731 @@
+
+#include <SFML/Graphics.hpp>
+#include <iostream>
+#include <algorithm>
+#include <cmath>
+#include <optional>
+#include <string>
+#include <stdexcept>
+
+using namespace std;
+
+//nodos
+
+struct Nodo
+{
+    long long caramelos;
+
+    Nodo* izq;
+    Nodo* der;
+    Nodo* padre;
+
+    // Positivo: hijo -> padre
+    // Negativo: padre -> hijo
+    long long pendienteIzq;
+    long long pendienteDer;
+
+    bool yaRepartio;
+    bool yaRecibio;
+
+    float x, y;
+
+    Nodo(long long c)
+    {
+        caramelos = c;
+
+        izq = nullptr;
+        der = nullptr;
+        padre = nullptr;
+
+        pendienteIzq = 0;
+        pendienteDer = 0;
+
+        yaRepartio = false;
+        yaRecibio = false;
+
+        x = y = 0;
+    }
+};
+
+
+class CArbol
+{
+private:
+    Nodo* raiz;
+
+    int nelem;
+    int profundidad;
+    int numeroRonda;
+
+    bool preparado;
+
+    sf::Font fuente;
+    bool fuenteLista;
+
+    const float separacionX = 110.f;
+    const float separacionY = 110.f;
+    const float margenX = 100.f;
+    const float margenY = 100.f;
+    const float radio = 24.f;
+
+    //construimos el arbol
+
+    Nodo* construir(const int* A, int i, int N, Nodo* padre)
+    {
+        if (i >= N)
+            return nullptr;
+
+        Nodo* p = new Nodo(A[i]);
+        p->padre = padre;
+
+        p->izq = construir(A, 2 * i + 1, N, p);
+        p->der = construir(A, 2 * i + 2, N, p);
+
+        return p;
+    }
+
+    // des
+
+    void destruir(Nodo* p)
+    {
+        if (p == nullptr)
+            return;
+
+        destruir(p->izq);
+        destruir(p->der);
+
+        delete p;
+    }
+
+    //contamos los nodos
+
+    int contarNodos(Nodo* p) const
+    {
+        if (p == nullptr)
+            return 0;
+
+        return 1
+            + contarNodos(p->izq)
+            + contarNodos(p->der);
+    }
+
+    //contamos los caramelos
+
+    long long contarCaramelos(Nodo* p) const
+    {
+        if (p == nullptr)
+            return 0;
+
+        return p->caramelos
+            + contarCaramelos(p->izq)
+            + contarCaramelos(p->der);
+    }
+
+    //calculamos la profundidad
+
+    int calcularProfundidad(Nodo* p) const
+    {
+        if (p == nullptr)
+            return -1;
+
+        return 1 + max(
+            calcularProfundidad(p->izq),
+            calcularProfundidad(p->der)
+        );
+    }
+
+ //contamos las hojas
+
+    int contarHojas(Nodo* p) const
+    {
+        if (p == nullptr)
+            return 0;
+
+        if (p->izq == nullptr && p->der == nullptr)
+            return 1;
+
+        return contarHojas(p->izq)
+            + contarHojas(p->der);
+    }
+
+    //calculamos para balancear
+
+    long long calcularBalance(Nodo* p)
+    {
+        if (p == nullptr)
+            return 0;
+
+        long long izq = calcularBalance(p->izq);
+        long long der = calcularBalance(p->der);
+
+        p->pendienteIzq = izq;
+        p->pendienteDer = der;
+
+        return p->caramelos - 1 + izq + der;
+    }
+
+    //reiniciamos las rondas
+
+    void iniciarRonda(Nodo* p)
+    {
+        if (p == nullptr)
+            return;
+
+        p->yaRepartio = false;
+        p->yaRecibio = false;
+
+        iniciarRonda(p->izq);
+        iniciarRonda(p->der);
+    }
+
+    //mandamos los caramelos
+
+    bool trasladar(Nodo* origen, Nodo* destino)
+    {
+        if (origen == nullptr || destino == nullptr)
+            return false;
+
+        //padre-hijo, hijo- padre
+        bool conectados =
+            origen->padre == destino ||
+            origen->izq == destino ||
+            origen->der == destino;
+
+        if (!conectados)
+            return false;
+
+        
+        if (origen->yaRepartio || origen->yaRecibio)
+            return false;
+
+        if (destino->yaRepartio || destino->yaRecibio)
+            return false;
+
+        if (origen->caramelos <= 0)
+            return false;
+
+        origen->caramelos--;
+        destino->caramelos++;
+
+        origen->yaRepartio = true;
+        destino->yaRecibio = true;
+
+        return true;
+    }
+
+    //repartimos
+
+    int repartirRamas(Nodo* p)
+    {
+        if (p == nullptr)
+            return 0;
+
+        int movimientos = 0;
+
+        //postorden
+        movimientos += repartirRamas(p->izq);
+        movimientos += repartirRamas(p->der);
+
+        //hijo izquiero
+
+        if (p->izq != nullptr)
+        {
+            if (p->pendienteIzq > 0)
+            {
+                // Hijo -> Padre
+                if (trasladar(p->izq, p))
+                {
+                    p->pendienteIzq--;
+                    movimientos++;
+                }
+            }
+            else if (p->pendienteIzq < 0)
+            {
+                // Padre -> Hijo
+                if (trasladar(p, p->izq))
+                {
+                    p->pendienteIzq++;
+                    movimientos++;
+                }
+            }
+        }
+
+        // hijo derecho
+
+        if (p->der != nullptr)
+        {
+            if (p->pendienteDer > 0)
+            {
+                // Hijo -> Padre
+                if (trasladar(p->der, p))
+                {
+                    p->pendienteDer--;
+                    movimientos++;
+                }
+            }
+            else if (p->pendienteDer < 0)
+            {
+                // Padre -> Hijo
+                if (trasladar(p, p->der))
+                {
+                    p->pendienteDer++;
+                    movimientos++;
+                }
+            }
+        }
+
+        return movimientos;
+    }
+
+   //comprobacion
+
+    bool todosConUno(Nodo* p) const
+    {
+        if (p == nullptr)
+            return true;
+
+        if (p->caramelos != 1)
+            return false;
+
+        return todosConUno(p->izq)
+            && todosConUno(p->der);
+    }
+
+    //pos de los nodos
+
+    void posicionar(Nodo* p, int nivel, int& hoja)
+    {
+        if (p == nullptr)
+            return;
+
+        posicionar(p->izq, nivel + 1, hoja);
+
+        if (p->izq == nullptr && p->der == nullptr)
+        {
+            p->x = margenX + hoja * separacionX;
+            hoja++;
+        }
+
+        posicionar(p->der, nivel + 1, hoja);
+
+        if (p->izq != nullptr && p->der != nullptr)
+        {
+            p->x = (p->izq->x + p->der->x) / 2.f;
+        }
+        else if (p->izq != nullptr)
+        {
+            p->x = p->izq->x;
+        }
+        else if (p->der != nullptr)
+        {
+            p->x = p->der->x;
+        }
+
+        p->y = margenY + nivel * separacionY;
+    }
+
+   //dibujos
+
+    void dibujarLineas(sf::RenderWindow& window, Nodo* p)
+    {
+        if (p == nullptr)
+            return;
+
+        Nodo* hijos[2] = { p->izq, p->der };
+
+        for (int i = 0; i < 2; i++)
+        {
+            Nodo* hijo = hijos[i];
+
+            if (hijo == nullptr)
+                continue;
+
+            float dx = hijo->x - p->x;
+            float dy = hijo->y - p->y;
+
+            float distancia = sqrt(dx * dx + dy * dy);
+
+            if (distancia > 2.f * radio)
+            {
+                float ux = dx / distancia;
+                float uy = dy / distancia;
+
+                sf::Vector2f inicio(
+                    p->x + ux * radio,
+                    p->y + uy * radio
+                );
+
+                sf::RectangleShape linea({
+                    distancia - 2.f * radio,
+                    2.f
+                    });
+
+                linea.setOrigin({ 0.f, 1.f });
+                linea.setPosition(inicio);
+
+                float angulo = atan2(dy, dx)
+                    * 180.f / 3.14159265f;
+
+                linea.setRotation(sf::degrees(angulo));
+
+                linea.setFillColor(
+                    sf::Color(148, 163, 184)
+                );
+
+                window.draw(linea);
+            }
+
+            dibujarLineas(window, hijo);
+        }
+    }
+
+    
+
+    void dibujarNodos(sf::RenderWindow& window, Nodo* p)
+    {
+        if (p == nullptr)
+            return;
+
+        sf::CircleShape circulo(radio);
+
+        circulo.setOrigin({ radio, radio });
+        circulo.setPosition({ p->x, p->y });
+
+        if (p->caramelos == 1)
+        {
+            
+            circulo.setFillColor(
+                sf::Color(22, 163, 74)
+            );
+        }
+        else if (p->caramelos > 1)
+        {
+            
+            circulo.setFillColor(
+                sf::Color(234, 88, 12)
+            );
+        }
+        else
+        {
+            
+            circulo.setFillColor(
+                sf::Color(37, 99, 235)
+            );
+        }
+
+        circulo.setOutlineThickness(2.f);
+
+        circulo.setOutlineColor(
+            sf::Color(226, 232, 240)
+        );
+
+        window.draw(circulo);
+
+        if (fuenteLista)
+        {
+            sf::Text texto(
+                fuente,
+                to_string(p->caramelos),
+                17
+            );
+
+            texto.setFillColor(sf::Color::White);
+            texto.setStyle(sf::Text::Bold);
+
+            while (
+                texto.getLocalBounds().size.x >
+                radio * 1.65f &&
+                texto.getCharacterSize() > 9
+                )
+            {
+                texto.setCharacterSize(
+                    texto.getCharacterSize() - 1
+                );
+            }
+
+            sf::FloatRect bounds =
+                texto.getLocalBounds();
+
+            texto.setOrigin({
+                bounds.position.x + bounds.size.x / 2.f,
+                bounds.position.y + bounds.size.y / 2.f
+                });
+
+            texto.setPosition({ p->x, p->y });
+
+            window.draw(texto);
+        }
+
+        dibujarNodos(window, p->izq);
+        dibujarNodos(window, p->der);
+    }
+
+public:
+
+    CArbol()
+    {
+        raiz = nullptr;
+        nelem = 0;
+        profundidad = 0;
+        numeroRonda = 0;
+        preparado = false;
+        fuenteLista = false;
+
+        const char* rutas[] = {
+            "arial.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/consola.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        };
+
+        for (const char* ruta : rutas)
+        {
+            if (fuente.openFromFile(ruta))
+            {
+                fuenteLista = true;
+                break;
+            }
+        }
+    }
+
+    ~CArbol()
+    {
+        destruir(raiz);
+    }
+
+    CArbol(const CArbol&) = delete;
+    CArbol& operator=(const CArbol&) = delete;
+
+    //armamos el arbol
+
+    void ArmarCaramelos(const int* A, int N)
+    {
+        if (A == nullptr || N <= 0)
+            throw invalid_argument("Arreglo invalido.");
+
+        long long total = 0;
+
+        for (int i = 0; i < N; i++)
+        {
+            if (A[i] < 0)
+                throw invalid_argument(
+                    "No puede haber caramelos negativos."
+                );
+
+            total += A[i];
+        }
+
+        if (total != N)
+            throw invalid_argument(
+                "La suma de caramelos debe ser igual a N."
+            );
+
+        destruir(raiz);
+        raiz = nullptr;
+        preparado = false;
+
+        raiz = construir(A, 0, N, nullptr);
+
+        nelem = contarNodos(raiz);
+        profundidad = calcularProfundidad(raiz);
+        numeroRonda = 0;
+
+        calcularBalance(raiz);
+
+        int hoja = 0;
+        posicionar(raiz, 0, hoja);
+
+        preparado = true;
+
+        cout << "Arbol construido.\n";
+        cout << "Nodos: " << nelem << '\n';
+        cout << "Caramelos: " << total << '\n';
+    }
+
+    //ejecutamos una ronda
+
+    int ronda()
+    {
+        if (!preparado || terminado())
+            return 0;
+
+        iniciarRonda(raiz);
+
+        int movimientos = repartirRamas(raiz);
+
+        numeroRonda++;
+
+        cout << "Ronda " << numeroRonda
+            << ": " << movimientos
+            << " movimiento(s).\n";
+
+        if (terminado())
+        {
+            cout << "Todos tienen 1 caramelo.\n";
+        }
+
+        return movimientos;
+    }
+
+    bool terminado() const
+    {
+        return preparado && todosConUno(raiz);
+    }
+
+    float ancho() const
+    {
+        return max(
+            1400.f,
+            2 * margenX
+            + max(0, contarHojas(raiz) - 1) * separacionX
+        );
+    }
+
+    float alto() const
+    {
+        return max(
+            800.f,
+            2 * margenY + profundidad * separacionY
+        );
+    }
+
+    void draw(sf::RenderWindow& window)
+    {
+        if (!preparado)
+            return;
+
+        dibujarLineas(window, raiz);
+        dibujarNodos(window, raiz);
+    }
+};
+
+
+
+int main()
+{
+    
+    int A[] = { 0, 4, 0, 0, 1 };
+
+    int N = sizeof(A) / sizeof(A[0]);
+
+    CArbol Arbol;
+
+    try
+    {
+        Arbol.ArmarCaramelos(A, N);
+    }
+    catch (const exception& e)
+    {
+        cerr << "Error: " << e.what() << '\n';
+        return 1;
+    }
+
+   //sfml
+
+    sf::RenderWindow window(
+        sf::VideoMode({ 1400, 800 }),
+        "Arbol de Caramelos - SFML 3"
+    );
+
+    window.setFramerateLimit(60);
+
+    float anchoArbol = Arbol.ancho();
+    float altoArbol = Arbol.alto();
+
+    float proporcion = 1400.f / 800.f;
+
+    float anchoVista = max(
+        anchoArbol,
+        altoArbol * proporcion
+    );
+
+    float altoVista = anchoVista / proporcion;
+
+    sf::View vista(
+        sf::FloatRect(
+            { 0.f, 0.f },
+            { anchoVista, altoVista }
+        )
+    );
+
+    vista.setCenter({
+        anchoArbol / 2.f,
+        altoArbol / 2.f
+        });
+
+    cout << "\nCONTROLES\n";
+    cout << "ESPACIO: siguiente ronda\n";
+    cout << "A: distribuir automaticamente\n";
+    cout << "Rueda del mouse: zoom\n\n";
+
+    bool automatico = false;
+    sf::Clock reloj;
+
+    while (window.isOpen())
+    {
+        while (const std::optional evento = window.pollEvent())
+        {
+            if (evento->is<sf::Event::Closed>())
+            {
+                window.close();
+            }
+
+            if (const auto* tecla =
+                evento->getIf<sf::Event::KeyPressed>())
+            {
+                
+                if (tecla->code == sf::Keyboard::Key::Space)
+                {
+                    automatico = false;
+                    Arbol.ronda();
+                }
+
+                
+                if (tecla->code == sf::Keyboard::Key::A)
+                {
+                    automatico = !automatico;
+                    reloj.restart();
+                }
+            }
+
+            
+            if (const auto* rueda =
+                evento->getIf<sf::Event::MouseWheelScrolled>())
+            {
+                if (rueda->delta > 0)
+                {
+                    vista.zoom(0.85f);
+                }
+                else if (rueda->delta < 0)
+                {
+                    vista.zoom(1.15f);
+                }
+            }
+        }
+
+        
+
+        if (automatico &&
+            reloj.getElapsedTime().asSeconds() >= 0.6f)
+        {
+            int movimientos = Arbol.ronda();
+
+            if (Arbol.terminado() || movimientos == 0)
+            {
+                automatico = false;
+            }
+
+            reloj.restart();
+        }
+
+        window.setView(vista);
+
+        window.clear(sf::Color(15, 23, 42));
+
+        Arbol.draw(window);
+
+        window.display();
+    }
+
+    return 0;
+}
